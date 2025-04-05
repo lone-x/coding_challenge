@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coding Challenge Competition</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Coding Challenge Competition</h1>
+            <p>Test your skills across 5 exciting levels!</p>
+        </header>
+
+        <main>
+            <div class="entry-form">
+                <h2>Enter Competition</h2>
+                <form id="contestantForm" action="register.php" method="POST">
+                    <div class="form-group">
+                        <label for="username">Enter Your Name:</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <button type="submit">Join Competition</button>
+                </form>
+            </div>
+
+            <div class="waiting-area" style="display: none;">
+                <h2>Waiting for Admin to Start...</h2>
+                <div class="contestants-list">
+                    <h3>Current Contestants:</h3>
+                    <ul id="contestantsList"></ul>
+                </div>
+            </div>
+
+            <div class="countdown" style="display: none;">
+                <h2 class="countdown-number"></h2>
+            </div>
+        </main>
+    </div>
+    <script src="js/main.js"></script>
+</body>
+</html>
