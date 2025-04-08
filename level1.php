@@ -20,6 +20,23 @@ if ($result->num_rows === 0) {
     $stmt = $conn->prepare("INSERT INTO progress (contestant_id, level_id, start_time) VALUES (?, ?, NOW())");
     $stmt->bind_param("ii", $contestant_id, $level_id);
     $stmt->execute();
+    
+    // Get the inserted start time
+    $stmt = $conn->prepare("SELECT UNIX_TIMESTAMP(start_time) as start_unix FROM progress WHERE contestant_id = ? AND level_id = ?");
+    $stmt->bind_param("ii", $contestant_id, $level_id);
+    $stmt->execute();
+    $start_result = $stmt->get_result();
+    $start_row = $start_result->fetch_assoc();
+    $_SESSION['level1_start'] = $start_row['start_unix'];
+} else {
+    // Get existing start time
+    $row = $result->fetch_assoc();
+    $stmt = $conn->prepare("SELECT UNIX_TIMESTAMP(start_time) as start_unix FROM progress WHERE contestant_id = ? AND level_id = ?");
+    $stmt->bind_param("ii", $contestant_id, $level_id);
+    $stmt->execute();
+    $start_result = $stmt->get_result();
+    $start_row = $start_result->fetch_assoc();
+    $_SESSION['level1_start'] = $start_row['start_unix'];
 }
 
 // Handle form submission
@@ -201,11 +218,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 4px;
             margin: 0 5px;
             vertical-align: middle;
+            cursor: text;
+            padding: 0 5px;
+            font-family: 'Consolas', monospace;
         }
 
         .dropzone.filled {
             border-style: solid;
             background: #2d2d2d;
+        }
+        
+        .dropzone:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
         }
 
         .answer-option {
@@ -219,6 +245,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             user-select: none;
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
+            transition: transform 0.2s ease;
+        }
+
+        .answer-option.dragging {
+            opacity: 0.8;
+            transform: scale(1.05);
+        }
+
+        .dropzone.active {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+            transform: scale(1.1);
+            transition: all 0.2s ease;
         }
 
         #options-container {
@@ -404,26 +443,157 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             option.addEventListener('dragstart', (e) => {
                 if (!option.classList.contains('used')) {
                     e.dataTransfer.setData('text/plain', option.dataset.answer);
+                    option.classList.add('dragging');
                 } else {
                     e.preventDefault();
+                }
+            });
+
+            option.addEventListener('dragend', () => {
+                option.classList.remove('dragging');
+            });
+
+            // Add touch events for mobile support
+            option.addEventListener('touchstart', (e) => {
+                if (!option.classList.contains('used')) {
+                    e.preventDefault();
+                    option.classList.add('dragging');
+                    option.dataset.dragging = 'true';
+                    // Store the initial touch position
+                    const touch = e.touches[0];
+                    option.dataset.initialX = touch.clientX;
+                    option.dataset.initialY = touch.clientY;
+                    
+                    // Create a clone for visual feedback
+                    const clone = option.cloneNode(true);
+                    clone.id = 'dragging-clone';
+                    clone.style.position = 'absolute';
+                    clone.style.left = `${touch.clientX - 20}px`;
+                    clone.style.top = `${touch.clientY - 20}px`;
+                    clone.style.opacity = '0.8';
+                    clone.style.zIndex = '1000';
+                    document.body.appendChild(clone);
+                }
+            }, { passive: false });
+
+            option.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const clone = document.getElementById('dragging-clone');
+                if (clone) {
+                    // Move the clone with the touch
+                    clone.style.left = `${touch.clientX - 20}px`;
+                    clone.style.top = `${touch.clientY - 20}px`;
+
+                    // Check dropzone intersection
+                    const dropzones = document.querySelectorAll('.dropzone');
+                    dropzones.forEach(dropzone => {
+                        const rect = dropzone.getBoundingClientRect();
+                        if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+                            touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                            dropzone.classList.add('active');
+                        } else {
+                            dropzone.classList.remove('active');
+                        }
+                    });
+                }
+            }, { passive: false });
+
+            option.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const draggingOption = document.querySelector('.answer-option[data-dragging="true"]');
+                const clone = document.getElementById('dragging-clone');
+                
+                if (draggingOption && clone) {
+                    // Remove the clone
+                    document.body.removeChild(clone);
+                    
+                    const touch = e.changedTouches[0];
+                    const dropzone = document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (dropzone && dropzone.classList.contains('dropzone')) {
+                        // Clear previous answer if any
+                        if (dropzone.dataset.currentAnswer) {
+                            const prevOption = document.querySelector(`.answer-option[data-answer="${dropzone.dataset.currentAnswer}"]`);
+                            if (prevOption) {
+                                prevOption.classList.remove('used');
+                            }
+                        }
+
+                        // Set new answer
+                        dropzone.textContent = draggingOption.dataset.answer;
+                        dropzone.dataset.currentAnswer = draggingOption.dataset.answer;
+                        dropzone.classList.add('filled');
+                        draggingOption.classList.add('used');
+
+                        // Update hidden input
+                        document.getElementById(`answer${dropzone.dataset.index}`).value = draggingOption.dataset.answer;
+
+                        // Check if all dropzones are filled
+                        const allFilled = Array.from(dropzones).every(zone => zone.classList.contains('filled'));
+                        submitBtn.disabled = !allFilled;
+                    }
+                    draggingOption.classList.remove('dragging');
+                    draggingOption.dataset.dragging = 'false';
+                    document.querySelectorAll('.dropzone').forEach(dz => dz.classList.remove('active'));
+                }
+            }, { passive: false });
+            
+            // Handle click on option for direct selection
+            option.addEventListener('click', () => {
+                if (!option.classList.contains('used')) {
+                    const focusedDropzone = document.querySelector('.dropzone:focus');
+                    if (focusedDropzone) {
+                        // Clear previous answer if any
+                        if (focusedDropzone.dataset.currentAnswer) {
+                            const prevOption = document.querySelector(`.answer-option[data-answer="${focusedDropzone.dataset.currentAnswer}"]`);
+                            if (prevOption) {
+                                prevOption.classList.remove('used');
+                            }
+                        }
+
+                        // Set new answer
+                        focusedDropzone.textContent = option.dataset.answer;
+                        focusedDropzone.dataset.currentAnswer = option.dataset.answer;
+                        focusedDropzone.classList.add('filled');
+                        option.classList.add('used');
+
+                        // Update hidden input
+                        document.getElementById(`answer${focusedDropzone.dataset.index}`).value = option.dataset.answer;
+
+                        // Check if all dropzones are filled
+                        const allFilled = Array.from(dropzones).every(zone => zone.classList.contains('filled'));
+                        submitBtn.disabled = !allFilled;
+                    }
                 }
             });
         });
 
         dropzones.forEach(dropzone => {
+            // Make dropzones editable
+            dropzone.setAttribute('contenteditable', 'true');
+            dropzone.setAttribute('tabindex', '0');
+            
             dropzone.addEventListener('dragover', (e) => {
                 e.preventDefault();
+                dropzone.classList.add('active');
+            });
+            
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('active');
             });
 
             dropzone.addEventListener('drop', (e) => {
                 e.preventDefault();
+                dropzone.classList.remove('active');
                 const answer = e.dataTransfer.getData('text/plain');
                 const option = document.querySelector(`.answer-option[data-answer="${answer}"]`);
                 
                 // Clear previous answer if any
                 if (dropzone.dataset.currentAnswer) {
                     const prevOption = document.querySelector(`.answer-option[data-answer="${dropzone.dataset.currentAnswer}"]`);
-                    prevOption.classList.remove('used');
+                    if (prevOption) {
+                        prevOption.classList.remove('used');
+                    }
                 }
 
                 // Set new answer
@@ -440,19 +610,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 submitBtn.disabled = !allFilled;
             });
 
-            // Allow removing answers by clicking
-            dropzone.addEventListener('click', () => {
+            // Handle keyboard input
+            dropzone.addEventListener('input', () => {
+                const text = dropzone.textContent.trim();
+                
+                // Clear previous answer if any
+                if (dropzone.dataset.currentAnswer) {
+                    const prevOption = document.querySelector(`.answer-option[data-answer="${dropzone.dataset.currentAnswer}"]`);
+                    if (prevOption) {
+                        prevOption.classList.remove('used');
+                    }
+                }
+                
+                // Check if the typed text matches any available option
+                const matchingOption = Array.from(answerOptions).find(opt => 
+                    opt.dataset.answer === text
+                );
+                
+                if (matchingOption) {
+                    dropzone.dataset.currentAnswer = text;
+                    dropzone.classList.add('filled');
+                    matchingOption.classList.add('used');
+                    
+                    // Update hidden input
+                    document.getElementById(`answer${dropzone.dataset.index}`).value = text;
+                } else {
+                    dropzone.dataset.currentAnswer = text;
+                    dropzone.classList.toggle('filled', text.length > 0);
+                    
+                    // Update hidden input
+                    document.getElementById(`answer${dropzone.dataset.index}`).value = text;
+                }
+                
+                // Check if all dropzones have content
+                const allFilled = Array.from(dropzones).every(zone => zone.textContent.trim().length > 0);
+                submitBtn.disabled = !allFilled;
+            });
+            
+            // Prevent line breaks and limit input length
+            dropzone.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    dropzone.blur();
+                }
+                
+                // Move to next dropzone on Tab
+                if (e.key === 'Tab' && !e.shiftKey) {
+                    const nextIndex = parseInt(dropzone.dataset.index) + 1;
+                    const nextDropzone = document.querySelector(`.dropzone[data-index="${nextIndex}"]`);
+                    if (nextDropzone) {
+                        setTimeout(() => nextDropzone.focus(), 0);
+                    }
+                }
+            });
+            
+            // Clear on double-click
+            dropzone.addEventListener('dblclick', () => {
                 if (dropzone.dataset.currentAnswer) {
                     const option = document.querySelector(`.answer-option[data-answer="${dropzone.dataset.currentAnswer}"]`);
-                    option.classList.remove('used');
+                    if (option) {
+                        option.classList.remove('used');
+                    }
                     dropzone.textContent = '';
                     dropzone.classList.remove('filled');
                     dropzone.dataset.currentAnswer = '';
                     document.getElementById(`answer${dropzone.dataset.index}`).value = '';
                     submitBtn.disabled = true;
+                    dropzone.focus();
                 }
             });
         });
+        
+        // Add instructions for typing
+        const instructionsEl = document.createElement('p');
+        instructionsEl.innerHTML = '<strong>Tip:</strong> You can either drag and drop the answers or click on a blank space and type directly.';
+        instructionsEl.style.marginTop = '10px';
+        instructionsEl.style.textAlign = 'center';
+        document.querySelector('.answers-area').appendChild(instructionsEl);
     </script>
 </body>
 </html>

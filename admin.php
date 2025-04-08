@@ -2,11 +2,20 @@
 require_once 'config.php';
 session_start();
 
-// Simple admin authentication (you should implement proper authentication)
-if (!isset($_SESSION['admin'])) {
+// Enhanced admin authentication and session security
+if (!isset($_SESSION['admin']) || $_SESSION['admin'] !== true) {
     header('Location: admin_login.php');
     exit;
 }
+
+// Session timeout after 30 minutes of inactivity
+if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 1800)) {
+    session_unset();
+    session_destroy();
+    header('Location: admin_login.php?timeout=1');
+    exit;
+}
+$_SESSION['last_activity'] = time();
 
 // Handle competition actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

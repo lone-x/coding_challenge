@@ -263,6 +263,17 @@ button:hover {
     }
 }
 
+.answer-option.dragging {
+    opacity: 0.7;
+    transform: scale(1.05);
+    background: #4d4d4d;
+}
+
+.dropzone.active {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
 .answer-option.used {
     opacity: 0.5;
     cursor: not-allowed;
